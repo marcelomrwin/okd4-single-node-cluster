@@ -1,9 +1,9 @@
-# okd4-single-node-cluster
+# okd4-single-node-cluster - This branch is not tested yet!
 Building an OKD4 SIngle Node Cluster with minimal resources
 
 __Updated for OKD 4 Beta 6 with Fedora CoreOS 32__
 
-__Removed Nginx requirement__
+__Removed Nginx requirement (NOT TESTED YET)__
 
 This tutorial will guide you through deploying an OKD 4.4 cluster that is as minimal as possible.  It will consist of one node which is both master and worker.
 
