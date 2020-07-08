@@ -79,7 +79,6 @@ Disconnect the keyboard, mouse, and display.  Your host is now headless.
     | `SNC_NETMASK` | `255.255.255.0` | The netmask of your local network |
     | `SNC_GATEWAY` | `10.11.11.1` | The IP address of your local router |
     | `INSTALL_HOST_IP` | `${SNC_HOST}` | The IP address of your snc-host host. |
-    | `INSTALL_ROOT` | `/usr/share/nginx/html/install` | The directory that will hold Fedora CoreOS install images |
     | `INSTALL_URL` | `http://${SNC_HOST}/install` | The URL for Fedora CoreOS installation |
     | `OKD4_SNC_PATH` | `/root/okd4-snc` | The path from which we will build our OKD4 cluster |
     | `OKD_REGISTRY` | `quay.io/openshift/okd` | The URL for the OKD4 stable build images |
@@ -228,26 +227,6 @@ Next, we need to set your host up for bridged networking so that your single nod
 1. You can now test DNS resolution.  Try some `ping` or `dig` commands.
 
        ping redhat.com
-
-## Nginx Configuration
-
-We are going to install the Nginx HTTP server and configure it to serve up the Fedora CoreOS installation images and the ignition config files.
-
-Open firewall ports for HTTP/S so that we can access the Nginx server:
-
-    firewall-cmd --permanent --add-service=http
-    firewall-cmd --permanent --add-service=https
-    firewall-cmd --reload
-
-Install and start Nginx:
-
-    yum -y install nginx
-    systemctl enable nginx
-    systemctl start nginx
-
-Create the directory structure for the Fedora CoreOS install files.
-
-    mkdir -p /usr/share/nginx/html/install/fcos/ignition
 
 ## Prepare to Install the OKD 4.4 Single Node Cluster
 
