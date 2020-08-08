@@ -30,6 +30,75 @@ case $i in
 esac
 done
 
+function configOkdNode() {
+    
+  local ip_addr=${1}
+  local host_name=${2}
+  local mac=${3}
+  local role=${4}
+
+cat << EOF > ${OKD4_SNC_PATH}/ignition/${role}.yml
+variant: fcos
+version: 1.1.0
+ignition:
+  config:
+    merge:
+      - local: ${role}.ign
+storage:
+  files:
+    - path: /etc/zincati/config.d/90-disable-feature.toml
+      mode: 0644
+      contents:
+        inline: |
+          [updates]
+          enabled = false
+    - path: /etc/systemd/network/25-nic0.link
+      mode: 0644
+      contents:
+        inline: |
+          [Match]
+          MACAddress=${mac}
+          [Link]
+          Name=nic0
+    - path: /etc/NetworkManager/system-connections/nic0.nmconnection
+      mode: 0600
+      overwrite: true
+      contents:
+        inline: |
+          [connection]
+          type=ethernet
+          interface-name=nic0
+
+          [ethernet]
+          mac-address=${mac}
+
+          [ipv4]
+          method=manual
+          addresses=${ip_addr}/${SNC_NETMASK}
+          gateway=${SNC_GATEWAY}
+          dns=${SNC_NAMESERVER}
+          dns-search=${SNC_DOMAIN}
+    - path: /etc/hostname
+      mode: 0420
+      overwrite: true
+      contents:
+        inline: |
+          ${host_name}
+EOF
+
+  cat ${OKD4_SNC_PATH}/ignition/${role}.yml | fcct -d ${OKD4_SNC_PATH}/okd4-install-dir/ -o ${OKD4_SNC_PATH}/ignition/${role}.ign
+  coreos-installer iso embed --config ${OKD4_SNC_PATH}/ignition/${role}.ign /tmp/snc-${role}.iso
+
+}
+
+# Generate MAC addresses for the master and bootstrap nodes:
+BOOT_MAC=$(date +%s | md5sum | head -c 6 | sed -e 's/\([0-9A-Fa-f]\{2\}\)/\1:/g' -e 's/\(.*\):$/\1/' | sed -e 's/^/52:54:00:/')
+sleep 1
+MASTER_MAC=$(date +%s | md5sum | head -c 6 | sed -e 's/\([0-9A-Fa-f]\{2\}\)/\1:/g' -e 's/\(.*\):$/\1/' | sed -e 's/^/52:54:00:/')
+
+# Get the IP addresses for the master and bootstrap nodes:
+BOOT_IP=$(dig okd4-snc-bootstrap.${SNC_DOMAIN} +short)
+MASTER_IP=$(dig okd4-snc-master.${SNC_DOMAIN} +short)
 
 # Pull the OKD release tooling identified by ${OKD_REGISTRY}:${OKD_RELEASE}.  i.e. OKD_REGISTRY=registry.svc.ci.openshift.org/origin/release, OKD_RELEASE=4.4.0-0.okd-2020-03-03-170958
 mkdir -p ${OKD4_SNC_PATH}/okd-release-tmp
@@ -38,85 +107,33 @@ oc adm release extract --command='openshift-install' ${OKD_REGISTRY}:${OKD_RELEA
 oc adm release extract --command='oc' ${OKD_REGISTRY}:${OKD_RELEASE}
 mv -f openshift-install ~/bin
 mv -f oc ~/bin
-cd ..
-rm -rf okd-release-tmp
+cd -
+rm -rf ${OKD4_SNC_PATH}/okd-release-tmp
 
-# Create and deploy ignition files
+# Retreive the FCOS live ISO
+curl -o ${OKD4_SNC_PATH}/fcos-iso/images/fcos.iso https://builds.coreos.fedoraproject.org/prod/streams/${FCOS_STREAM}/builds/${FCOS_VER}/x86_64/fedora-coreos-${FCOS_VER}-live.x86_64.iso
+cp -f ${OKD4_SNC_PATH}/fcos-iso/images/fcos.iso /tmp/snc-master.iso
+cp -f ${OKD4_SNC_PATH}/fcos-iso/images/fcos.iso /tmp/snc-bootstrap.iso
+
+# Create the OKD ignition files
 rm -rf ${OKD4_SNC_PATH}/okd4-install-dir
 mkdir -p ${OKD4_SNC_PATH}/okd4-install-dir
 cp ${OKD4_SNC_PATH}/install-config-snc.yaml ${OKD4_SNC_PATH}/okd4-install-dir/install-config.yaml
-OKD_VER=$(echo $OKD_RELEASE | sed  "s|4.4.0-0.okd|4.4|g")
+OKD_PREFIX=$(echo ${OKD_RELEASE} | cut -d"." -f1,2)
+OKD_VER=$(echo ${OKD_RELEASE} | sed  "s|${OKD_PREFIX}.0-0.okd|${OKD_PREFIX}|g")
 sed -i "s|%%OKD_VER%%|${OKD_VER}|g" ${OKD4_SNC_PATH}/okd4-install-dir/install-config.yaml
 openshift-install --dir=${OKD4_SNC_PATH}/okd4-install-dir create ignition-configs
 
-
-# Download Syslinux
-curl -o ${OKD4_SNC_PATH}/syslinux-6.03.tar.xz https://mirrors.edge.kernel.org/pub/linux/utils/boot/syslinux/syslinux-6.03.tar.xz
-tar -xf ${OKD4_SNC_PATH}/syslinux-6.03.tar.xz -C ${OKD4_SNC_PATH}/
-
-# Prepare FCOS boot ISO
-mkdir -p ${OKD4_SNC_PATH}/fcos-iso/{isolinux,images,ignition}
-curl -o ${OKD4_SNC_PATH}/fcos-iso/images/vmlinuz https://builds.coreos.fedoraproject.org/prod/streams/${FCOS_STREAM}/builds/${FCOS_VER}/x86_64/fedora-coreos-${FCOS_VER}-live-kernel-x86_64
-curl -o ${OKD4_SNC_PATH}/fcos-iso/images/initramfs.img https://builds.coreos.fedoraproject.org/prod/streams/${FCOS_STREAM}/builds/${FCOS_VER}/x86_64/fedora-coreos-${FCOS_VER}-live-initramfs.x86_64.img
-cp ${OKD4_SNC_PATH}/syslinux-6.03/bios/com32/elflink/ldlinux/ldlinux.c32 ${OKD4_SNC_PATH}/fcos-iso/isolinux/ldlinux.c32
-cp ${OKD4_SNC_PATH}/syslinux-6.03/bios/core/isolinux.bin ${OKD4_SNC_PATH}/fcos-iso/isolinux/isolinux.bin
-cp ${OKD4_SNC_PATH}/syslinux-6.03/bios/com32/menu/vesamenu.c32 ${OKD4_SNC_PATH}/fcos-iso/isolinux/vesamenu.c32
-cp ${OKD4_SNC_PATH}/syslinux-6.03/bios/com32/lib/libcom32.c32 ${OKD4_SNC_PATH}/fcos-iso/isolinux/libcom32.c32
-cp ${OKD4_SNC_PATH}/syslinux-6.03/bios/com32/libutil/libutil.c32 ${OKD4_SNC_PATH}/fcos-iso/isolinux/libutil.c32
-cp -r ${OKD4_SNC_PATH}/okd4-install-dir/*.ign ${OKD4_SNC_PATH}/fcos-iso/ignition/
-chmod 644 ${OKD4_SNC_PATH}/fcos-iso/ignition/*
-
-# Get IP address for Bootstrap Node
-IP=""
-IP=$(dig okd4-snc-bootstrap.${SNC_DOMAIN} +short)
-
-# Create ISO Image for Bootstrap
-cat << EOF > ${OKD4_SNC_PATH}/fcos-iso/isolinux/isolinux.cfg
-serial 0
-default vesamenu.c32
-timeout 1
-menu clear
-menu separator
-label linux
-  menu label ^Fedora CoreOS (Live)
-  menu default
-  kernel /images/vmlinuz
-  append initrd=/images/initramfs.img ip=${IP}::${SNC_GATEWAY}:${SNC_NETMASK}:okd4-snc-bootstrap.${SNC_DOMAIN}:eth0:none nameserver=${SNC_NAMESERVER} rd.neednet=1 coreos.inst=yes coreos.inst.install_dev=/dev/sda coreos.inst.ignition_url=file:///ignition/bootstrap.ign coreos.inst.platform_id=qemu console=ttyS0
-menu separator
-menu end
-EOF
-
-mkisofs -o /tmp/bootstrap.iso -b isolinux/isolinux.bin -c isolinux/boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table -J -r ${OKD4_SNC_PATH}/fcos-iso/
+# Generate the FCOS ignition files for bootstrap and master:
+mkdir -p ${OKD4_SNC_PATH}/ignition
+configOkdNode ${BOOT_IP} "okd4-snc-bootstrap" ${BOOT_MAC} "bootstrap"
+configOkdNode ${MASTER_IP} "okd4-snc-master" ${MASTER_MAC} "master"
 
 # Create the Bootstrap Node VM
 mkdir -p /VirtualMachines/okd4-snc-bootstrap
-virt-install --name okd4-snc-bootstrap --memory 14336 --vcpus 2 --disk size=100,path=/VirtualMachines/okd4-snc-bootstrap/rootvol,bus=sata --cdrom /tmp/bootstrap.iso --network bridge=br0 --graphics none --noautoconsole --os-variant centos7.0
-
-IP=""
-
-# Get IP address for the OKD Node
-IP=$(dig okd4-snc-master.${SNC_DOMAIN} +short)
-
-# Create ISO Image for Master
-cat << EOF > ${OKD4_SNC_PATH}/fcos-iso/isolinux/isolinux.cfg
-serial 0
-default vesamenu.c32
-timeout 1
-menu clear
-menu separator
-label linux
-  menu label ^Fedora CoreOS (Live)
-  menu default
-  kernel /images/vmlinuz
-  append initrd=/images/initramfs.img ip=${IP}::${SNC_GATEWAY}:${SNC_NETMASK}:okd4-snc-master.${SNC_DOMAIN}:eth0:none nameserver=${SNC_NAMESERVER} rd.neednet=1 coreos.inst=yes coreos.inst.install_dev=/dev/sda coreos.inst.ignition_url=file:///ignition/master.ign coreos.inst.platform_id=qemu console=ttyS0
-menu separator
-menu end
-EOF
-
-mkisofs -o /tmp/snc-master.iso -b isolinux/isolinux.bin -c isolinux/boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table -J -r ${OKD4_SNC_PATH}/fcos-iso/
+virt-install --name okd4-snc-bootstrap --memory 14336 --vcpus 2 --disk size=100,path=/VirtualMachines/okd4-snc-bootstrap/rootvol,bus=sata --cdrom /tmp/bootstrap.iso --network bridge=br0 --mac=${BOOT_MAC} --graphics none --noautoconsole
 
 # Create the OKD Node VM
 mkdir -p /VirtualMachines/okd4-snc-master
-virt-install --name okd4-snc-master --memory ${MEMORY} --vcpus ${CPU} --disk size=${DISK},path=/VirtualMachines/okd4-snc-master/rootvol,bus=sata --cdrom /tmp/snc-master.iso --network bridge=br0 --graphics none --noautoconsole --os-variant centos7.0
+virt-install --name okd4-snc-master --memory ${MEMORY} --vcpus ${CPU} --disk size=${DISK},path=/VirtualMachines/okd4-snc-master/rootvol,bus=sata --cdrom /tmp/snc-master.iso --network bridge=br0 --mac=${MASTER_MAC} --graphics none --noautoconsole
 
-rm -rf ${OKD4_SNC_PATH}/fcos-iso

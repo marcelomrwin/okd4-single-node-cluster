@@ -2,11 +2,11 @@
 
 ## Host setup:
 
-You need to start with a minimal CentOS 7 install.
+You need to start with a minimal CentOS 8 install. (__This tutorial assumes that you are comfortable installing a Linux OS.__)
 
-    wget https://buildlogs.centos.org/rolling/7/isos/x86_64/CentOS-7-x86_64-Minimal.iso
+Download the minimal install ISO from: http://isoredirect.centos.org/centos/8/isos/x86_64/
 
-Use a tool like [balenaEtcher](https://www.balena.io/etcher/) to create a bootable USB key from a CentOS ISO.
+I use [balenaEtcher](https://www.balena.io/etcher/) to create a bootable USB key from a CentOS ISO.
 
 You will have to attach monitor, mouse, and keyboard to your NUC for the install.  After the install, this machine can be headless.
 
@@ -24,10 +24,10 @@ After the installation completes, ensure that you can ssh to your host.
 
 Install packages and set up KVM:
 
-    yum -y install wget git net-tools bind bind-utils bash-completion nfs-utils rsync qemu-kvm libvirt libvirt-python libguestfs-tools virt-install iscsi-initiator-utils httpd-tools epel-release
+    dnf -y module install virt
+    dnf -y install wget git net-tools bind bind-utils bash-completion libguestfs-tools virt-install epel-release libvirt-devel httpd-tools openssl-devel cargo
 
-    systemctl enable libvirtd
-    systemctl start libvirtd
+    systemctl enable libvirtd --now
 
     mkdir /VirtualMachines
     virsh pool-destroy default
@@ -45,7 +45,7 @@ Create an SSH key pair: (Take the defaults for all of the prompts, don't set a k
 
 Update and shutdown the SNC host:
 
-    yum -y update
+    dnf -y update
     shutdown -h now
 
 Disconnect the keyboard, mouse, and display.  Your host is now headless.  
@@ -156,8 +156,7 @@ Now that we are done with the configuration let's enable DNS and start it up.
 
     firewall-cmd --permanent --add-service=dns
     firewall-cmd --reload
-    systemctl enable named
-    systemctl start named
+    systemctl enable named --now
 
 ### __Hugely Helpful Tip:__
 
@@ -228,6 +227,19 @@ Next, we need to set your host up for bridged networking so that your single nod
 
        ping redhat.com
 
+## CoreOS Installer and FCCT
+
+1. Install `coreos-installer`
+
+       cargo install coreos-installer
+       mv ~/.cargo/bin/coreos-installer ~/bin/
+
+1. Install `fcct`
+
+       wget https://github.com/coreos/fcct/releases/download/v0.6.0/fcct-x86_64-unknown-linux-gnu
+       mv fcct-x86_64-unknown-linux-gnu ~/bin/fcct 
+       chmod 750 ~/bin/fcct
+
 ## Prepare to Install the OKD 4.4 Single Node Cluster
 
 I have provided a set of utility scripts to automate a lot of the tasks associated with deploying and tearing down an your OKD cluster.  In your `~/bin` directory you will see the following:
@@ -236,33 +248,33 @@ I have provided a set of utility scripts to automate a lot of the tasks associat
 |-|-|
 | `DeployOkdSnc.sh` | Creates the Bootstrap and Master nodes, and starts the installation |
 | `DestroyBootstrap.sh` | Destroys the Bootstrap node |
-| `sncPostInstall.sh` | Post cluster install script to set up the cluster for use |
+| `sncPostInstall.sh` | Post cluster install script to set up the cluster for use (copied from https://github.com/code-ready/snc) |
 | `UnDeployOkdSnc.sh` | Destroys the single node cluster |
 
-1. Retrieve the `oc` command.  We're going to grab an older version of `oc`, but that's OK.  We just need it to retrieve to current versions of `oc` and `openshift-install`
+1. Retrieve the `oc` command.
 
-    Go to: `https://github.com/openshift/okd/releases/tag/4.4.0-0.okd-2020-01-28-022517` and retrieve the `openshift-client-linux-4.4.0-0.okd-2020-01-28-022517.tar.gz` archive.
+    Go to: `https://github.com/openshift/okd/releases/tag/4.5.0-0.okd-2020-07-29-070316` and retrieve the `openshift-client-linux-4.5.0-0.okd-2020-07-29-070316.tar.gz` archive.
 
        cd ${OKD4_SNC_PATH}
-       wget https://github.com/openshift/okd/releases/download/4.4.0-0.okd-2020-01-28-022517/openshift-client-linux-4.4.0-0.okd-2020-01-28-022517.tar.gz
+       wget https://github.com/openshift/okd/releases/download/4.5.0-0.okd-2020-07-29-070316/openshift-client-linux-4.5.0-0.okd-2020-07-29-070316.tar.gz
 
 1. Uncompress the archive and move the `oc` executable to your ~/bin directory.
 
-       tar -xzf openshift-client-linux-4.4.0-0.okd-2020-01-28-022517.tar.gz
+       tar -xzf openshift-client-linux-4.5.0-0.okd-2020-07-29-070316.tar.gz
        mv oc ~/bin
        mv kubectl ~/bin
-       rm -f openshift-client-linux-4.4.0-0.okd-2020-01-28-022517.tar.gz
+       rm -f openshift-client-linux-4.5.0-0.okd-2020-07-29-070316.tar.gz
        rm -f README.md
 
-    The `DeployOkdSnc.sh` script will pull the correct version of `oc` and `openshift-install` when we run it.  It will over-write older versions in `~/bin`.
+    The `DeployOkdSnc.sh` script will pull the current version of `oc` and `openshift-install` when we run it.  It will over-write older versions in `~/bin`.
 
 1. We need to configure the environment to pull a current version of OKD.  So point your browser at `https://origin-release.svc.ci.openshift.org`.  
 
     ![OKD Release](images/OKD-Release.png)
 
-    Select the most recent 4.4.0-0.okd release from the `4-stable` stream that is in a Phase of `Accepted`, and copy the release name into an environment variable:
+    Select the most recent 4.5.0-0.okd release from the `4-stable` stream that is in a Phase of `Accepted`, and copy the release name into an environment variable:
 
-       export OKD_RELEASE=4.5.0-0.okd-2020-06-29-110348-beta6
+       export OKD_RELEASE=4.5.0-0.okd-2020-07-29-070316
 
 1. The next step is to prepare the install-config.yaml file that `openshift-install` will use it to create the `ignition` files for bootstrap and master nodes.
 
@@ -336,7 +348,7 @@ I have provided a set of utility scripts to automate a lot of the tasks associat
     1. Invokes the openshift-install command against our install-config to produce ignition files
     1. Copies the ignition files into place for FCOS install
     1. Pulls the requested Fedora CoreOS release based on the values of `${FCOS_VER}` and `${FCOS_STREAM}`
-    1. Creates a bootable ISO for the Bootstrap and Master nodes with a customized `isolinux.cfg` file.
+    1. Creates a bootable ISO for the Bootstrap and Master nodes with the OKD ignition files modified for static IP addresses.
     1. Creates the guest VMs for the Boostrap and Master nodes.
     1. Starts the VMs and begins the installation process.
 
@@ -347,7 +359,7 @@ I have provided a set of utility scripts to automate a lot of the tasks associat
        virsh console okd4-snc-bootstrap
        virsh console okd4-snc-master
     
-    When the install is complete, the VMs will be shutdown:
+    When the FCOS install is complete, the VMs will be shutdown:
 
        virsh list --all
 
