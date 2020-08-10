@@ -6,7 +6,7 @@ set -x
 CPU="4"
 MEMORY="16384"
 DISK="200"
-FCOS_VER=32.20200601.3.0
+FCOS_VER=32.20200715.3.0
 FCOS_STREAM=stable
 
 for i in "$@"
@@ -91,6 +91,9 @@ EOF
 
 }
 
+rm -f /tmp/snc-bootstrap.iso
+rm -f /tmp/snc-master.iso
+
 # Generate MAC addresses for the master and bootstrap nodes:
 BOOT_MAC=$(date +%s | md5sum | head -c 6 | sed -e 's/\([0-9A-Fa-f]\{2\}\)/\1:/g' -e 's/\(.*\):$/\1/' | sed -e 's/^/52:54:00:/')
 sleep 1
@@ -111,9 +114,9 @@ cd -
 rm -rf ${OKD4_SNC_PATH}/okd-release-tmp
 
 # Retreive the FCOS live ISO
-curl -o ${OKD4_SNC_PATH}/fcos-iso/images/fcos.iso https://builds.coreos.fedoraproject.org/prod/streams/${FCOS_STREAM}/builds/${FCOS_VER}/x86_64/fedora-coreos-${FCOS_VER}-live.x86_64.iso
-cp -f ${OKD4_SNC_PATH}/fcos-iso/images/fcos.iso /tmp/snc-master.iso
-cp -f ${OKD4_SNC_PATH}/fcos-iso/images/fcos.iso /tmp/snc-bootstrap.iso
+curl -o ${OKD4_SNC_PATH}/fcos.iso https://builds.coreos.fedoraproject.org/prod/streams/${FCOS_STREAM}/builds/${FCOS_VER}/x86_64/fedora-coreos-${FCOS_VER}-live.x86_64.iso
+cp -f ${OKD4_SNC_PATH}/fcos.iso /tmp/snc-master.iso
+cp -f ${OKD4_SNC_PATH}/fcos.iso /tmp/snc-bootstrap.iso
 
 # Create the OKD ignition files
 rm -rf ${OKD4_SNC_PATH}/okd4-install-dir
@@ -131,9 +134,9 @@ configOkdNode ${MASTER_IP} "okd4-snc-master" ${MASTER_MAC} "master"
 
 # Create the Bootstrap Node VM
 mkdir -p /VirtualMachines/okd4-snc-bootstrap
-virt-install --name okd4-snc-bootstrap --memory 14336 --vcpus 2 --disk size=100,path=/VirtualMachines/okd4-snc-bootstrap/rootvol,bus=sata --cdrom /tmp/bootstrap.iso --network bridge=br0 --mac=${BOOT_MAC} --graphics none --noautoconsole
+virt-install --name okd4-snc-bootstrap --memory 14336 --vcpus 2 --disk size=100,path=/VirtualMachines/okd4-snc-bootstrap/rootvol,bus=sata --cdrom /tmp/snc-bootstrap.iso --network bridge=br0 --mac=${BOOT_MAC} --graphics none --noautoconsole --os-variant centos7.0
 
 # Create the OKD Node VM
 mkdir -p /VirtualMachines/okd4-snc-master
-virt-install --name okd4-snc-master --memory ${MEMORY} --vcpus ${CPU} --disk size=${DISK},path=/VirtualMachines/okd4-snc-master/rootvol,bus=sata --cdrom /tmp/snc-master.iso --network bridge=br0 --mac=${MASTER_MAC} --graphics none --noautoconsole
+virt-install --name okd4-snc-master --memory ${MEMORY} --vcpus ${CPU} --disk size=${DISK},path=/VirtualMachines/okd4-snc-master/rootvol,bus=sata --cdrom /tmp/snc-master.iso --network bridge=br0 --mac=${MASTER_MAC} --graphics none --noautoconsole --os-variant centos7.0
 
